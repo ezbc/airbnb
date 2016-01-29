@@ -1,5 +1,8 @@
 *.zip
+<<<<<<< HEAD
 *.pyc
 data
 data_products
+=======
+>>>>>>> fe9627f1099c3220adf245dd718988cbc588fba0
 
