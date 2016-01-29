@@ -1,0 +1,5 @@
+*.zip
+*.pyc
+data
+data_products
+
