@@ -131,9 +131,6 @@ def convert_categorical_data(df, cols=[]):
 
     # cycle through each categorical variable
     for col in cols:
-
-        print col
-
         # get the number of dummy variables needed
         unique_labels = np.unique(df[col].values) #[nan, A, B, C, D, F]
 
@@ -142,11 +139,12 @@ def convert_categorical_data(df, cols=[]):
 
         # create a new dummy variable column for each unique label
         for label in unique_labels:
-            data = np.empty(df[col].values.size)
+            data = np.zeros(df[col].values.size)
             data[np.where(df[col].values == label)[0]] = 1
             df_new = df_new.join(pd.Series(data=data,
-                                   name=col + "_is_" + str(label)),
-                                   )
+                                           name=col + "_is_" + str(label),
+                                           dtype=int),
+                                           )
 
         # remove the original categorical column
         del df_new[col]
@@ -183,16 +181,11 @@ def convert_labels(df, init_type=str, labels=None):
 
     return df_data
 
-def predict_neural_network(df_train, df_test):
+def prep_data(df_train, df_test):
 
-    # see http://yandex.github.io/rep/estimators.html#module-rep.estimators.sklearn
+    ''' Makes dummy variables and removes nans
+    '''
 
-    from rep.estimators import SklearnClassifier, SklearnRegressor
-    from sklearn.ensemble import GradientBoostingClassifier
-    from sklearn.ensemble import GradientBoostingRegressor
-    import pandas as pd
-
-    print('\nPrepping data...')
     columns_to_keep = ['age',
                        'gender',
                        'signup_method',
@@ -201,12 +194,8 @@ def predict_neural_network(df_train, df_test):
                        'first_browser',
                        ]
 
-    #df_train_data = df_train[df_train.columns.values[:-1]]
-    #df_train_data = pd.DataFrame(df_train.gender)
-    #df_test_data = pd.DataFrame(df_test.gender)
     df_train_data = df_train[columns_to_keep]
     df_test_data = df_train[columns_to_keep]
-
     df_labels = pd.DataFrame(df_train[df_train.columns.values[-1]])
 
     # Convert column data containing strings to dummy variables
@@ -220,56 +209,94 @@ def predict_neural_network(df_train, df_test):
                            'first_browser',
                            ]
 
+    print df_labels.columns
+
     df_train_data = convert_categorical_data(df_train_data,
                                              cols=columns_categorical,)
     df_test_data = convert_categorical_data(df_test_data,
                                              cols=columns_categorical,)
-    #df_labels_data = convert_categorical_data(df_labels,
-    #                                         cols=columns_categorical,)
+    df_labels_data = convert_categorical_data(df_labels,
+                                              cols=['country_destination',],)
 
     # convert nans to mean value
     df_train_data = convert_nans(df_train_data)
     df_test_data = convert_nans(df_test_data)
 
-    # convert the labels to integers
-    df_labels_data = convert_labels(df_labels, init_type=str)
+    return df_train_data, df_test_data, df_labels_data, df_labels.columns.values
 
-    # Using gradient boosting with default settings
-    if 0:
-        sk = SklearnClassifier(GradientBoostingClassifier(),
-                               features=df_train_data.columns.values)
-    else:
-        sk = SklearnRegressor(GradientBoostingRegressor(),
-                              features=df_train_data.columns.values)
+def predict_neural_network(df_train, df_test, crop=True):
+
+    # see http://yandex.github.io/rep/estimators.html#module-rep.estimators.sklearn
+
+    import pandas as pd
+
+    # crop to smaller datasets for testing:
+    if crop:
+        df_train = df_train.drop(df_train.index[1000:], inplace=0)
+        df_test = df_test.drop(df_test.index[1000:], inplace=0)
+
+        print df_train
+
+    print('\nPrepping data...')
+    df_train, df_test, df_labels, countries = prep_data(df_train, df_test)
+
+    # convert the labels to integers
+    #df_labels_data = convert_labels(df_labels, init_type=str)
+
 
     # fit the data
 
     filename = '../data_products/prediction.pickle'
-    if 0:
+    if 1:
         print('\nFitting regressor...')
-        sk.fit(df_train_data, df_labels_data)
-        print('\nPredicting from test data...')
-        output = sk.predict(df_test_data)
-        prediction = np.squeeze(np.array(output, dtype=int))
-        #prediction = \
-        #    pd.DataFrame(prediction,
-        #                 columns=['country'],)
-        #prediction.to_pickle(filename)
+        fit_categorical_labels(df_train, df_test, df_labels,
+                               labels_list=countries)
     else:
         prediction = pd.read_pickle(filename).squeeze()
 
-    #prediction = np.squeeze(prediction)
+    return df_predict
 
-    print prediction.shape
+def fit_categorical_labels(df_train, df_test, df_labels, fit_type='regressor',
+        labels_list=None):
 
-    # convert integer values to countries
-    prediction_strings = convert_labels(prediction,
-                                        init_type=int,
-                                        labels=np.unique(df_labels))
+    from rep.estimators import SklearnClassifier, SklearnRegressor
+    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.ensemble import GradientBoostingRegressor
 
-    df_predict = pd.DataFrame(np.array([df_test['id'].values,
-                               prediction_strings]).T,
-                              columns=['id', 'country'])
+    # Using gradient boosting with default settings
+    if fit_type == 'classifier':
+        sk = SklearnClassifier(GradientBoostingClassifier(),
+                               features=df_train.columns.values)
+    elif fit_type == 'regressor':
+        sk = SklearnRegressor(GradientBoostingRegressor(),
+                              features=df_train.columns.values)
+
+
+    prediction_list = []
+    for column in df_labels.columns.values:
+        # get a single column to predict
+        labels = df_labels[column]
+
+        # fit the data with the training set
+        sk.fit(df_train, labels)
+
+        # predict new countries
+        output = sk.predict(df_test)
+        prediction_list.append(pd.DataFrame(output, dtype=int))
+
+        #prediction = pd.read_pickle(filename).squeeze()
+
+    df_predict = pd.DataFrame(prediction_list)
+    df_predict = gather_dummy_predictions(df_predict, labels_list)
+
+def gather_dummy_predictions(df_predict, labels):
+
+    x = df_predict.stack()
+    df_predict = \
+        pd.DataFrame(pd.Series(pd.Categorical(locs)))
+
+    print 'still need to reconstruct dummy variables...'
 
     return df_predict
+
 
