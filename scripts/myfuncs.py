@@ -2,6 +2,7 @@
 
 import pandas as pd
 import numpy as np
+import pickle
 
 def recreate_train_data(df, train_fraction=0.66):
 
@@ -66,62 +67,6 @@ def write_submission(df, filename):
               sep=',',
               index=False,
               )
-
-def predict_neural_network(df_train, df_test):
-
-    import pybrain as pyb
-    from pybrain.datasets import SupervisedDataSet
-    from pybrain.datasets import ClassificationDataSet
-    from pybrain.tools.shortcuts import buildNetwork
-    from pybrain.supervised.trainers import BackpropTrainer
-    from pybrain.structure.modules import TanhLayer
-
-    print df_train.columns.size
-    print df_train.shape
-
-    print df_train[df_train.columns.values[:-1]].shape
-
-    df_input = df_train[df_train.columns.values[:-1]]
-    df_target = np.array([df_train[df_train.columns.values[-1]],]).T
-
-    # number of inputs with which to predict
-    input_size = df_input.shape[1]
-
-    # number of outputs
-    target_size = 1
-
-    print df_target.shape
-    print df_input.shape
-
-    # initialize
-    ds = SupervisedDataSet(input_size, target_size)
-    ds = ClassificationDataSet(input_size, target_size)
-
-    # add the input and output data
-    ds.setField('input', df_input)
-    ds.setField('target', df_target)
-
-    # Train the network
-    hidden_size = 100   # arbitrarily chosen
-
-    net = buildNetwork(input_size,
-                       hidden_size,
-                       target_size,
-                       bias=True,
-                       hiddenclass=TanhLayer,
-                       )
-
-    trainer = BackpropTrainer(net, ds)
-
-    trainer.trainUntilConvergence(verbose=True,
-                                  validationProportion=0.15,
-                                  maxEpochs=1000,
-                                  continueEpochs=10,
-                                  )
-
-    p = net.activateOnDataset(ds)
-
-    return p
 
 def convert_categorical_data(df, cols=[]):
 
@@ -198,6 +143,13 @@ def prep_data(df_train, df_test):
     df_test_data = df_train[columns_to_keep]
     df_labels = pd.DataFrame(df_train[df_train.columns.values[-1]])
 
+    # get a list of all the counties
+    country_labels = np.unique(df_labels)
+
+    # get the user ids from the test data
+    print df_test.columns.values
+    ids = df_test['id']
+
     # Convert column data containing strings to dummy variables
     # e.g. column 'gender' with 'male' and 'female' will be two columns:
     # column 'gender_is_male' and column 'gender_is_female', each with values of
@@ -208,8 +160,6 @@ def prep_data(df_train, df_test):
                            'first_device_type',
                            'first_browser',
                            ]
-
-    print df_labels.columns
 
     df_train_data = convert_categorical_data(df_train_data,
                                              cols=columns_categorical,)
@@ -222,9 +172,15 @@ def prep_data(df_train, df_test):
     df_train_data = convert_nans(df_train_data)
     df_test_data = convert_nans(df_test_data)
 
-    return df_train_data, df_test_data, df_labels_data, df_labels.columns.values
+    return df_train_data, df_test_data, df_labels_data, country_labels, ids
 
-def predict_neural_network(df_train, df_test, crop=True):
+def merge_predictions(ids, df_predict):
+
+    df_merge = pd.concat([ids, df_predict], axis=1)
+
+    return df_merge
+
+def predict_labels(df_train, df_test, crop=1):
 
     # see http://yandex.github.io/rep/estimators.html#module-rep.estimators.sklearn
 
@@ -235,10 +191,11 @@ def predict_neural_network(df_train, df_test, crop=True):
         df_train = df_train.drop(df_train.index[1000:], inplace=0)
         df_test = df_test.drop(df_test.index[1000:], inplace=0)
 
-        print df_train
-
     print('\nPrepping data...')
-    df_train, df_test, df_labels, countries = prep_data(df_train, df_test)
+    df_train, df_test, df_labels, countries, ids = prep_data(df_train, df_test)
+
+    print 'df_labels', df_labels.columns
+    print 'countries', countries
 
     # convert the labels to integers
     #df_labels_data = convert_labels(df_labels, init_type=str)
@@ -249,10 +206,14 @@ def predict_neural_network(df_train, df_test, crop=True):
     filename = '../data_products/prediction.pickle'
     if 1:
         print('\nFitting regressor...')
-        fit_categorical_labels(df_train, df_test, df_labels,
+        df_predict = fit_categorical_labels(df_train, df_test, df_labels,
                                labels_list=countries)
+        df_predict.to_pickle('../data_products/prediction.pickle')
     else:
-        prediction = pd.read_pickle(filename).squeeze()
+        df_predict = pd.read_pickle(filename).squeeze()
+
+    # merge test user ids with predictions
+    df_predict = merge_predictions(ids, df_predict)
 
     return df_predict
 
@@ -272,8 +233,8 @@ def fit_categorical_labels(df_train, df_test, df_labels, fit_type='regressor',
                               features=df_train.columns.values)
 
 
-    prediction_list = []
-    for column in df_labels.columns.values:
+    prediction_array = np.empty(df_labels.shape)
+    for i, column in enumerate(df_labels.columns.values):
         # get a single column to predict
         labels = df_labels[column]
 
@@ -281,22 +242,33 @@ def fit_categorical_labels(df_train, df_test, df_labels, fit_type='regressor',
         sk.fit(df_train, labels)
 
         # predict new countries
-        output = sk.predict(df_test)
-        prediction_list.append(pd.DataFrame(output, dtype=int))
+        prediction = sk.predict(df_test)
+        prediction_array[:, i] = prediction
 
         #prediction = pd.read_pickle(filename).squeeze()
 
-    df_predict = pd.DataFrame(prediction_list)
+    df_predict = pd.DataFrame(prediction_array, columns=df_labels.columns.values)
     df_predict = gather_dummy_predictions(df_predict, labels_list)
+
+    return df_predict
 
 def gather_dummy_predictions(df_predict, labels):
 
-    x = df_predict.stack()
-    df_predict = \
-        pd.DataFrame(pd.Series(pd.Categorical(locs)))
+    # construct empty file
+    orig_col = np.chararray(len(df_predict), itemsize=3)
 
-    print 'still need to reconstruct dummy variables...'
+    print labels
 
-    return df_predict
+    for i in xrange(len(df_predict.axes[0])):
+
+        row = df_predict.iloc[i]
+
+        # use the label with the highest probability
+        idx_max = np.where(row == np.max(row))[0][0]
+        orig_col[i] = labels[idx_max]
+
+    orig_col = pd.DataFrame(orig_col, columns=['country'])
+
+    return orig_col
 
 

@@ -70,7 +70,7 @@ def main():
     # Begin analysis
     df_predict = myfuncs.create_naive_prediction(df_test, df_countries)
 
-    df_predict = myfuncs.predict_neural_network(df_train, df_test)
+    df_predict = myfuncs.predict_labels(df_train, df_test)
 
     # write prediction
     myfuncs.write_submission(df_predict, FILENAME_PREDICT + '.csv')
