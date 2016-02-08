@@ -131,12 +131,18 @@ def prep_data(df_train, df_test):
     ''' Makes dummy variables and removes nans
     '''
 
-    columns_to_keep = ['age',
+    columns_to_keep = [
                        'gender',
+                       'age',
                        'signup_method',
+                       'signup_flow',
                        'language',
+                       'affiliate_channel',
+                       'affiliate_provider',
+                       'first_affiliate_tracked',
+                       'signup_app',
                        'first_device_type',
-                       'first_browser',
+                       'first_browser'
                        ]
 
     df_train_data = df_train[columns_to_keep]
@@ -147,18 +153,23 @@ def prep_data(df_train, df_test):
     country_labels = np.unique(df_labels)
 
     # get the user ids from the test data
-    print df_test.columns.values
     ids = df_test['id']
 
     # Convert column data containing strings to dummy variables
     # e.g. column 'gender' with 'male' and 'female' will be two columns:
     # column 'gender_is_male' and column 'gender_is_female', each with values of
     # either 0 or 1
-    columns_categorical = ['gender',
-                           'signup_method',
-                           'language',
-                           'first_device_type',
-                           'first_browser',
+    columns_categorical = [
+                       'gender',
+                       'signup_method',
+                       #'signup_flow',
+                       'language',
+                       'affiliate_channel',
+                       'affiliate_provider',
+                       'first_affiliate_tracked',
+                       'signup_app',
+                       'first_device_type',
+                       'first_browser'
                            ]
 
     df_train_data = convert_categorical_data(df_train_data,
@@ -167,6 +178,9 @@ def prep_data(df_train, df_test):
                                              cols=columns_categorical,)
     df_labels_data = convert_categorical_data(df_labels,
                                               cols=['country_destination',],)
+
+    print 'number of columns', len(df_train_data.columns.values)
+    print 'columns of dummy variables:', df_test_data.columns.values
 
     # convert nans to mean value
     df_train_data = convert_nans(df_train_data)
@@ -180,7 +194,7 @@ def merge_predictions(ids, df_predict):
 
     return df_merge
 
-def predict_labels(df_train, df_test, crop=1):
+def predict_labels(df_train, df_test, crop=0):
 
     # see http://yandex.github.io/rep/estimators.html#module-rep.estimators.sklearn
 
@@ -188,8 +202,8 @@ def predict_labels(df_train, df_test, crop=1):
 
     # crop to smaller datasets for testing:
     if crop:
-        df_train = df_train.drop(df_train.index[1000:], inplace=0)
-        df_test = df_test.drop(df_test.index[1000:], inplace=0)
+        df_train = df_train.drop(df_train.index[10:], inplace=0)
+        df_test = df_test.drop(df_test.index[10:], inplace=0)
 
     print('\nPrepping data...')
     df_train, df_test, df_labels, countries, ids = prep_data(df_train, df_test)
@@ -215,23 +229,39 @@ def predict_labels(df_train, df_test, crop=1):
     # merge test user ids with predictions
     df_predict = merge_predictions(ids, df_predict)
 
+    # remove others
+    df_predict.replace('oth', 'NDF', inplace=True)
+
     return df_predict
 
-def fit_categorical_labels(df_train, df_test, df_labels, fit_type='regressor',
-        labels_list=None):
+def fit_categorical_labels(df_train, df_test, df_labels,
+        fit_type='classifier', fit_framework='sklearn', labels_list=None):
 
     from rep.estimators import SklearnClassifier, SklearnRegressor
     from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.ensemble import GradientBoostingRegressor
+    from rep.estimators.neurolab import NeurolabRegressor
+    #from rep.estimators import XGBoostRegressor
+    #from rep.estimators import XGBoostRegressor
 
     # Using gradient boosting with default settings
-    if fit_type == 'classifier':
-        sk = SklearnClassifier(GradientBoostingClassifier(),
-                               features=df_train.columns.values)
-    elif fit_type == 'regressor':
-        sk = SklearnRegressor(GradientBoostingRegressor(),
-                              features=df_train.columns.values)
-
+    if fit_framework == 'sklearn':
+        if fit_type == 'classifier':
+            sk = SklearnClassifier(GradientBoostingClassifier(),
+                                   features=df_train.columns.values)
+        elif fit_type == 'regressor':
+            sk = SklearnRegressor(GradientBoostingRegressor(),
+                                  features=df_train.columns.values)
+    elif fit_framework == 'neural':
+        if fit_type == 'regressor':
+            sk = NeurolabRegressor(features=df_train.columns.values,
+                                   )
+    elif fit_framework == 'xgboost':
+        if fit_type == 'regressor':
+            sk = XGBoostRegressor(features=df_train.columns.values,
+                                  )
+    else:
+        raise ValueError('No correct combo of fit_type and fit_framework found')
 
     prediction_array = np.empty(df_labels.shape)
     for i, column in enumerate(df_labels.columns.values):
@@ -263,9 +293,13 @@ def gather_dummy_predictions(df_predict, labels):
 
         row = df_predict.iloc[i]
 
+        #print row
+
         # use the label with the highest probability
         idx_max = np.where(row == np.max(row))[0][0]
         orig_col[i] = labels[idx_max]
+
+        #print orig_col[i]
 
     orig_col = pd.DataFrame(orig_col, columns=['country'])
 
