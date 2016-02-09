@@ -68,33 +68,63 @@ def write_submission(df, filename):
               index=False,
               )
 
-def convert_categorical_data(df, cols=[]):
+def convert_categorical_data(df, cols=[], dummy_labels=None,
+        return_dummy_labels=False):
+
+    # remove '-' with nothing
+    for col in df.columns.values:
+        df[col] = df[col].str.replace('-', '')
 
     # copy new dataframe to be joined with dummy variables, then old variables
     # removed
     df_new = df.copy()
 
-    print 'n rows in cat convert', len(df_new)
+    # formatting issue with '-unknown-'
 
     # cycle through each categorical variable
-    for col in cols:
-        # get the number of dummy variables needed
-        unique_labels = np.unique(df[col].values) #[nan, A, B, C, D, F]
+    if dummy_labels is None:
+        dummy_labels = {}
+        for col in cols:
 
-        # formatting issue with '-unknown-'
-        df[col] = df[col].str.strip('-')
+            # get the number of dummy variables needed
+            unique_labels = np.unique(df[col].values) #[nan, A, B, C, D, F]
 
-        # create a new dummy variable column for each unique label
-        for label in unique_labels:
-            data = np.zeros(df[col].values.size)
-            data[np.where(df[col].values == label)[0]] = 1
-            df_new = df_new.join(pd.Series(data=data,
-                                           name=col + "_is_" + str(label),
-                                           dtype=int),
-                                           )
+            # create a new dummy variable column for each unique label
+            dummy_names = []
+            for label in unique_labels:
+                # get the
+                dummy_name = col + "_is_" + str(label)
+                dummy_names.append(label)
+
+                data = np.zeros(df[col].values.size)
+                data[np.where(df[col].values == label)[0]] = 1
+                df_new = df_new.join(pd.Series(data=data,
+                                               name=dummy_name,
+                                               dtype=int),
+                                               )
+
+            dummy_labels[col] = dummy_names
+
+            # remove the original categorical column
+            del df_new[col]
+    else:
+
+        for col in cols:
+            # create a new dummy variable column for each unique label
+            for label in dummy_labels:
+                dummy_name = col + "_is_" + str(label)
+                data = np.zeros(df[col].values.size)
+                data[np.where(df[col].values == label)[0]] = 1
+                df_new = df_new.join(pd.Series(data=data,
+                                               name=dummy_name,
+                                               dtype=int),
+                                               )
 
         # remove the original categorical column
         del df_new[col]
+
+    if return_dummy_labels:
+        return df_new, dummy_labels
 
     return df_new
 
@@ -176,10 +206,13 @@ def prep_data(df_train, df_test):
 
     print 'number of predictions before category convert', len(df_test)
 
-    df_train_data = convert_categorical_data(df_train_data,
-                                             cols=columns_categorical,)
+    df_train_data, dummy_labels = convert_categorical_data(df_train_data,
+                                             cols=columns_categorical,
+                                             return_dummy_labels=True)
     df_test_data = convert_categorical_data(df_test_data,
-                                             cols=columns_categorical,)
+                                             cols=columns_categorical,
+                                             dummy_labels=dummy_labels,
+                                             )
     df_labels_data = convert_categorical_data(df_labels,
                                               cols=['country_destination',],)
 
@@ -198,7 +231,7 @@ def merge_predictions(ids, df_predict):
 
     return df_merge
 
-def predict_labels(df_train, df_test, crop=0):
+def predict_labels(df_train, df_test, crop=1, load=0):
 
     # see http://yandex.github.io/rep/estimators.html#module-rep.estimators.sklearn
 
@@ -206,11 +239,11 @@ def predict_labels(df_train, df_test, crop=0):
 
     # crop to smaller datasets for testing:
     if crop:
-        #df_train = df_train.drop(df_train.index[10:], inplace=0)
-        #df_test = df_test.drop(df_test.index[10:], inplace=0)
-        idx = np.random.randint(len(df_test), size=10000)
+        df_train = df_train.drop(df_train.index[1000:], inplace=0)
+        df_test = df_test.drop(df_test.index[1000:], inplace=0)
+        #idx = np.random.randint(len(df_test), size=10000)
         #print idx
-        df_train = df_train.drop(df_train.index[idx], inplace=0)
+        #df_train = df_train.drop(df_train.index[idx], inplace=0)
         #df_test = df_test.drop(df_test.index[idx], inplace=0)
 
     print('\nPrepping data...')
@@ -227,7 +260,7 @@ def predict_labels(df_train, df_test, crop=0):
     # fit the data
 
     filename = '../data_products/prediction.pickle'
-    if 1:
+    if not load:
         print('\nFitting regressor...')
         df_predict = fit_categorical_labels(df_train, df_test, df_labels,
                                labels_list=countries)
