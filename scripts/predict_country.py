@@ -33,9 +33,11 @@ def main():
     DIR_DATA = '../data/'
     DIR_DATA_PROD = '../data_products/'
     FILENAME_TRAIN_CSV = DIR_DATA + 'train_users.csv'
+    FILENAME_SAMPLE_CSV = DIR_DATA + 'sample_submission_NDF.csv'
     FILENAME_TEST_CSV = DIR_DATA + 'test_users.csv'
     FILENAME_COUNTRIES = DIR_DATA + 'countries.csv'
     FILENAME_TRAIN = DIR_DATA_PROD + 'train'
+    FILENAME_SAMPLE = DIR_DATA_PROD + 'sample'
     FILENAME_TEST = DIR_DATA_PROD + 'test'
     FILENAME_VALID = DIR_DATA_PROD + 'valid'
     FILENAME_PREDICT = DIR_DATA_PROD + 'predict'
@@ -59,11 +61,11 @@ def main():
         df_train = read_data(FILENAME_TRAIN_CSV)
 
 
-
     df_test = read_data(FILENAME_TEST_CSV,)
+    df_sample = read_data(FILENAME_SAMPLE_CSV,)
     df_countries = read_data(FILENAME_COUNTRIES,)
 
-    print('number of predictions to make', len(df_test))
+    #print('number of predictions to make', len(df_test))
 
     #print np.unique(df_train.language.values)
     #print df_countries.columns.values

@@ -71,9 +71,7 @@ def write_submission(df, filename):
 def convert_categorical_data(df, cols=[], dummy_labels=None,
         return_dummy_labels=False):
 
-    # remove '-' with nothing
-    for col in df.columns.values:
-        df[col] = df[col].str.replace('-', '')
+    #print 'nans in cat', np.unique(df['age'].values)
 
     # copy new dataframe to be joined with dummy variables, then old variables
     # removed
@@ -85,7 +83,6 @@ def convert_categorical_data(df, cols=[], dummy_labels=None,
     if dummy_labels is None:
         dummy_labels = {}
         for col in cols:
-
             # get the number of dummy variables needed
             unique_labels = np.unique(df[col].values) #[nan, A, B, C, D, F]
 
@@ -108,10 +105,9 @@ def convert_categorical_data(df, cols=[], dummy_labels=None,
             # remove the original categorical column
             del df_new[col]
     else:
-
         for col in cols:
             # create a new dummy variable column for each unique label
-            for label in dummy_labels:
+            for label in dummy_labels[col]:
                 dummy_name = col + "_is_" + str(label)
                 data = np.zeros(df[col].values.size)
                 data[np.where(df[col].values == label)[0]] = 1
@@ -120,20 +116,29 @@ def convert_categorical_data(df, cols=[], dummy_labels=None,
                                                dtype=int),
                                                )
 
-        # remove the original categorical column
-        del df_new[col]
+            # remove the original categorical column
+            del df_new[col]
 
     if return_dummy_labels:
         return df_new, dummy_labels
 
     return df_new
 
-def convert_nans(df):
+def convert_bad_values(df):
 
     # convert nans to mean value of each column.
     # using inplace=True to actually change the contents of df
     for col in df.columns.values:
-        df[col].fillna(np.nanmean(df[col].values), inplace=True)
+        try:
+            df[col] = df[col].fillna(np.nanmean(df[col].values))
+            #print col
+        except TypeError:
+            # remove '-' with nothing
+            df[col] = df[col].str.replace('-', '')
+            df[col] = df[col].str.replace(' ', '_')
+            df[col] = df[col].str.replace('/', '_')
+            df[col] = df[col].str.replace('(', '')
+            df[col] = df[col].str.replace(')', '')
 
     return df
 
@@ -204,7 +209,12 @@ def prep_data(df_train, df_test):
                        'first_browser'
                            ]
 
-    print 'number of predictions before category convert', len(df_test)
+    #print 'number of predictions before category convert', len(df_test)
+
+    # convert nans to mean value
+    df_train_data = convert_bad_values(df_train_data)
+    df_test_data = convert_bad_values(df_test_data)
+    #print 'nans', np.unique(df_train_data['age'].values)
 
     df_train_data, dummy_labels = convert_categorical_data(df_train_data,
                                              cols=columns_categorical,
@@ -213,15 +223,15 @@ def prep_data(df_train, df_test):
                                              cols=columns_categorical,
                                              dummy_labels=dummy_labels,
                                              )
+
+    #assert df_train_data.columns.values == df_test_data.columns.values
     df_labels_data = convert_categorical_data(df_labels,
                                               cols=['country_destination',],)
 
     #print 'number of columns', len(df_train_data.columns.values)
     #print 'columns of dummy variables:', df_test_data.columns.values
 
-    # convert nans to mean value
-    df_train_data = convert_nans(df_train_data)
-    df_test_data = convert_nans(df_test_data)
+    #print 'nans', np.unique(df_train_data['age'].values)
 
     return df_train_data, df_test_data, df_labels_data, country_labels, ids
 
@@ -231,7 +241,7 @@ def merge_predictions(ids, df_predict):
 
     return df_merge
 
-def predict_labels(df_train, df_test, crop=1, load=0):
+def predict_labels(df_train, df_test, crop=0, load=0):
 
     # see http://yandex.github.io/rep/estimators.html#module-rep.estimators.sklearn
 
@@ -240,16 +250,17 @@ def predict_labels(df_train, df_test, crop=1, load=0):
     # crop to smaller datasets for testing:
     if crop:
         df_train = df_train.drop(df_train.index[1000:], inplace=0)
-        df_test = df_test.drop(df_test.index[1000:], inplace=0)
+        df_test = df_test.drop(df_test.index[100:], inplace=0)
         #idx = np.random.randint(len(df_test), size=10000)
         #print idx
         #df_train = df_train.drop(df_train.index[idx], inplace=0)
         #df_test = df_test.drop(df_test.index[idx], inplace=0)
 
-    print('\nPrepping data...')
+    #print('\nPrepping data...')
     df_train, df_test, df_labels, countries, ids = prep_data(df_train, df_test)
 
-    print 'number of predictions after dummy analysis', len(df_test)
+    #print 'number of predictions after dummy analysis', len(df_test)
+    #print 'nans in age', np.unique(df_train['age'].values)
     #print 'df_labels', df_labels.columns
     #print 'countries', countries
 
@@ -261,7 +272,7 @@ def predict_labels(df_train, df_test, crop=1, load=0):
 
     filename = '../data_products/prediction.pickle'
     if not load:
-        print('\nFitting regressor...')
+        #print('\nFitting regressor...')
         df_predict = fit_categorical_labels(df_train, df_test, df_labels,
                                labels_list=countries)
         df_predict.to_pickle('../data_products/prediction.pickle')
@@ -277,12 +288,13 @@ def predict_labels(df_train, df_test, crop=1, load=0):
     return df_predict
 
 def fit_categorical_labels(df_train, df_test, df_labels,
-        fit_type='regressor', fit_framework='sklearn', labels_list=None):
+        fit_type='regressor', fit_framework='theanets', labels_list=None):
 
     from rep.estimators import SklearnClassifier, SklearnRegressor
     from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.ensemble import GradientBoostingRegressor
     from rep.estimators.neurolab import NeurolabRegressor
+    from rep.estimators.theanets import TheanetsRegressor
     #from rep.estimators import XGBoostRegressor
     #from rep.estimators import XGBoostRegressor
 
@@ -302,10 +314,14 @@ def fit_categorical_labels(df_train, df_test, df_labels,
         if fit_type == 'regressor':
             sk = XGBoostRegressor(features=df_train.columns.values,
                                   )
+    elif fit_framework == 'theanets':
+        if fit_type == 'regressor':
+            sk = TheanetsRegressor(features=df_train.columns.values,
+                                  )
     else:
         raise ValueError('No correct combo of fit_type and fit_framework found')
 
-    prediction_array = np.empty(df_labels.shape)
+    prediction_array = np.empty((len(df_test), len(df_labels.columns)))
     for i, column in enumerate(df_labels.columns.values):
         # get a single column to predict
         labels = df_labels[column]
@@ -314,7 +330,7 @@ def fit_categorical_labels(df_train, df_test, df_labels,
         sk.fit(df_train, labels)
 
         # predict new countries
-        prediction = sk.predict(df_test)
+        prediction = np.squeeze(sk.predict(df_test))
         prediction_array[:, i] = prediction
 
         #prediction = pd.read_pickle(filename).squeeze()
@@ -322,7 +338,7 @@ def fit_categorical_labels(df_train, df_test, df_labels,
     df_predict = pd.DataFrame(prediction_array, columns=df_labels.columns.values)
     df_predict = gather_dummy_predictions(df_predict, labels_list)
 
-    print('unique labels', np.unique(df_predict))
+    #print('unique labels', np.unique(df_predict))
 
     return df_predict
 
@@ -339,8 +355,8 @@ def gather_dummy_predictions(df_predict, labels):
 
         # use the label with the highest probability
         idx_max = np.where(row == np.max(row))[0][0]
-        if labels[idx_max] != 'US' or labels[idx_max] != 'NDF':
-            print labels[idx_max]
+        #if labels[idx_max] != 'US' or labels[idx_max] != 'NDF':
+            #print labels[idx_max]
         orig_col[i] = labels[idx_max]
 
         #print orig_col[i]
