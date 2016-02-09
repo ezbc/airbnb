@@ -63,14 +63,18 @@ def main():
     df_test = read_data(FILENAME_TEST_CSV,)
     df_countries = read_data(FILENAME_COUNTRIES,)
 
-    print np.unique(df_train.language.values)
-    print df_countries.columns.values
-    print np.unique(df_countries.lng_destination.values)
+    print('number of predictions to make', len(df_test))
+
+    #print np.unique(df_train.language.values)
+    #print df_countries.columns.values
+    #print np.unique(df_countries.lng_destination.values)
 
     # Begin analysis
-    df_predict = myfuncs.create_naive_prediction(df_test, df_countries)
+    #df_predict = myfuncs.create_naive_prediction(df_test, df_countries)
 
     df_predict = myfuncs.predict_labels(df_train, df_test)
+
+    #print('n nans', np.sum(df_predict['id'].values == df_predict['id'].values))
 
     # write prediction
     myfuncs.write_submission(df_predict, FILENAME_PREDICT + '.csv')

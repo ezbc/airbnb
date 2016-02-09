@@ -74,6 +74,8 @@ def convert_categorical_data(df, cols=[]):
     # removed
     df_new = df.copy()
 
+    print 'n rows in cat convert', len(df_new)
+
     # cycle through each categorical variable
     for col in cols:
         # get the number of dummy variables needed
@@ -146,7 +148,7 @@ def prep_data(df_train, df_test):
                        ]
 
     df_train_data = df_train[columns_to_keep]
-    df_test_data = df_train[columns_to_keep]
+    df_test_data = df_test[columns_to_keep]
     df_labels = pd.DataFrame(df_train[df_train.columns.values[-1]])
 
     # get a list of all the counties
@@ -172,6 +174,8 @@ def prep_data(df_train, df_test):
                        'first_browser'
                            ]
 
+    print 'number of predictions before category convert', len(df_test)
+
     df_train_data = convert_categorical_data(df_train_data,
                                              cols=columns_categorical,)
     df_test_data = convert_categorical_data(df_test_data,
@@ -179,8 +183,8 @@ def prep_data(df_train, df_test):
     df_labels_data = convert_categorical_data(df_labels,
                                               cols=['country_destination',],)
 
-    print 'number of columns', len(df_train_data.columns.values)
-    print 'columns of dummy variables:', df_test_data.columns.values
+    #print 'number of columns', len(df_train_data.columns.values)
+    #print 'columns of dummy variables:', df_test_data.columns.values
 
     # convert nans to mean value
     df_train_data = convert_nans(df_train_data)
@@ -202,14 +206,19 @@ def predict_labels(df_train, df_test, crop=0):
 
     # crop to smaller datasets for testing:
     if crop:
-        df_train = df_train.drop(df_train.index[10:], inplace=0)
-        df_test = df_test.drop(df_test.index[10:], inplace=0)
+        #df_train = df_train.drop(df_train.index[10:], inplace=0)
+        #df_test = df_test.drop(df_test.index[10:], inplace=0)
+        idx = np.random.randint(len(df_test), size=10000)
+        #print idx
+        df_train = df_train.drop(df_train.index[idx], inplace=0)
+        #df_test = df_test.drop(df_test.index[idx], inplace=0)
 
     print('\nPrepping data...')
     df_train, df_test, df_labels, countries, ids = prep_data(df_train, df_test)
 
-    print 'df_labels', df_labels.columns
-    print 'countries', countries
+    print 'number of predictions after dummy analysis', len(df_test)
+    #print 'df_labels', df_labels.columns
+    #print 'countries', countries
 
     # convert the labels to integers
     #df_labels_data = convert_labels(df_labels, init_type=str)
@@ -235,7 +244,7 @@ def predict_labels(df_train, df_test, crop=0):
     return df_predict
 
 def fit_categorical_labels(df_train, df_test, df_labels,
-        fit_type='classifier', fit_framework='sklearn', labels_list=None):
+        fit_type='regressor', fit_framework='sklearn', labels_list=None):
 
     from rep.estimators import SklearnClassifier, SklearnRegressor
     from sklearn.ensemble import GradientBoostingClassifier
@@ -280,14 +289,14 @@ def fit_categorical_labels(df_train, df_test, df_labels,
     df_predict = pd.DataFrame(prediction_array, columns=df_labels.columns.values)
     df_predict = gather_dummy_predictions(df_predict, labels_list)
 
+    print('unique labels', np.unique(df_predict))
+
     return df_predict
 
 def gather_dummy_predictions(df_predict, labels):
 
     # construct empty file
     orig_col = np.chararray(len(df_predict), itemsize=3)
-
-    print labels
 
     for i in xrange(len(df_predict.axes[0])):
 
@@ -297,6 +306,8 @@ def gather_dummy_predictions(df_predict, labels):
 
         # use the label with the highest probability
         idx_max = np.where(row == np.max(row))[0][0]
+        if labels[idx_max] != 'US' or labels[idx_max] != 'NDF':
+            print labels[idx_max]
         orig_col[i] = labels[idx_max]
 
         #print orig_col[i]
